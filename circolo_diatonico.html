@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Circolo delle quinte — accordi e modi</title>
+<style>
+  :root{
+    --ink:#1c1d21;
+    --paper:#fbfaf7;
+    --card:#ffffff;
+    --hairline:#ded9cd;
+    --muted:#6f6c63;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    line-height:1.5;
+    min-height:100vh;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 48px}
+
+  header{padding-bottom:18px;border-bottom:1px solid var(--hairline);margin-bottom:26px}
+  header h1{
+    font-family:Georgia,"Times New Roman",serif;
+    font-weight:700;font-size:clamp(28px,4vw,40px);letter-spacing:-.01em;
+  }
+  header p{color:var(--muted);margin-top:2px;max-width:60ch}
+
+  .layout{display:grid;grid-template-columns:minmax(0,1.25fr) 350px;gap:32px;align-items:start}
+  @media (max-width:940px){.layout{grid-template-columns:1fr}}
+
+  .wheel-card{background:var(--card);border:1px solid var(--hairline);border-radius:14px;padding:10px}
+  .wheel-card svg{display:block;width:100%;height:auto}
+
+  /* ---- costruttore di accordi ---- */
+  .builder{margin-bottom:20px}
+  .builder h2{
+    font-family:Georgia,serif;font-size:20px;margin-bottom:10px;
+  }
+  .row-label{font-size:12px;color:var(--muted);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.08em}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{
+    font:inherit;font-size:15px;padding:6px 13px;border-radius:999px;
+    border:1px solid var(--ink);background:var(--card);color:var(--ink);
+    cursor:pointer;transition:background .12s,color .12s;
+  }
+  .chip:hover{background:#f1efe8}
+  .chip[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  .presets{margin-top:14px;font-size:14px;color:var(--muted)}
+  .presets button{
+    font:inherit;font-size:14px;background:none;border:none;cursor:pointer;
+    color:var(--ink);text-decoration:underline;text-underline-offset:3px;padding:2px 2px;
+  }
+  .presets button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+  /* ---- risultati ---- */
+  .results h2{font-family:Georgia,serif;font-size:20px;margin-bottom:4px}
+  .results .count{color:var(--muted);font-size:14px;margin-bottom:14px}
+  .results ul{list-style:none}
+  .results li{
+    display:flex;align-items:baseline;gap:12px;
+    padding:11px 2px;border-bottom:1px solid var(--hairline);
+  }
+  .results li:last-child{border-bottom:none}
+  .dot{flex:0 0 14px;width:14px;height:14px;border-radius:50%;transform:translateY(2px)}
+  .results .key{font-weight:600;font-size:17px;white-space:nowrap}
+  .results .mode{color:var(--muted);font-size:15px}
+  .footnote{
+    margin-top:18px;padding-top:12px;border-top:1px solid var(--hairline);
+    font-size:13px;color:var(--muted);
+  }
+  @media (prefers-reduced-motion:reduce){.chip{transition:none}}
+</style>
+<meta name="ai-disclosure" content="ai-autonomous" ai-model="GLM-5.3-Flash" ai-provider="Thaura"><meta name="generator" content="Thaura (GLM-5.3-Flash)"></head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Circolo delle quinte</h1>
+    <p>Scegli un accordo: sulle tonalità in cui è diatonico si accende il colore del suo grado, con il modo corrispondente.</p>
+  </header>
+
+  <div class="layout">
+    <div class="wheel-card" id="wheel"></div>
+
+    <div>
+      <section class="builder" aria-label="Selettore accordo">
+        <h2>Scegli l'accordo</h2>
+        <div class="row-label">Nota di base</div>
+        <div class="chips" id="roots"></div>
+        <div class="row-label">Qualità</div>
+        <div class="chips" id="quals"></div>
+        <p class="presets">Prova:
+          <button type="button" data-p="D|m7">Dm7</button>,
+          <button type="button" data-p="G|7">G7</button>,
+          <button type="button" data-p="C|maj7">Cmaj7</button>,
+          <button type="button" data-p="B|dim">Bdim</button>
+        </p>
+      </section>
+
+      <section class="results" aria-live="polite">
+        <h2 id="res-title">—</h2>
+        <p class="count" id="res-count"></p>
+        <ul id="res-list"></ul>
+        <p class="footnote">Gradi e modi della scala maggiore: I Ionico · II Dorico · III Frigio · IV Lidio · V Misolidio · VI Eolio · VII Locrio.</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var SVGNS="http://www.w3.org/2000/svg";
+  var SCALED=[0,2,4,5,7,9,11];
+  var KEYS=[["C",0],["G",7],["D",2],["A",9],["E",4],["B",11],["F#",6],["Db",1],["Ab",8],["Eb",3],["Bb",10],["F",5]];
+  var REL=["Am","Em","Bm","F#m","C#m","G#m","D#m","Bbm","Fm","Cm","Gm","Dm"];
+  var ROMAN=["I","II","III","IV","V","VI","VII"];
+  var MODES=["Ionico","Dorico","Frigio","Lidio","Misolidio","Eolio","Locrio"];
+  var MODECOLORS=["#c0452f","#cd7f2a","#b3a42a","#5d9e52","#33958e","#3f66a8","#7c55a5"];
+  var QUALS=[
+    {id:"maj", label:"Maggiore",     suffix:"",    iv:[0,4,7]},
+    {id:"m",   label:"Minore",       suffix:"m",   iv:[0,3,7]},
+    {id:"dim", label:"Diminuito",    suffix:"dim", iv:[0,3,6]},
+    {id:"maj7",label:"Maggiore 7ª",  suffix:"maj7",iv:[0,4,7,11]},
+    {id:"m7",  label:"Minore 7ª",    suffix:"m7",  iv:[0,3,7,10]},
+    {id:"7",   label:"Dominante",    suffix:"7",   iv:[0,4,7,10]},
+    {id:"m7b5",label:"Semidiminuito",suffix:"m7♭5",iv:[0,3,6,10]}
+  ];
+  var ROOTS=[["C",0],["C#",1],["D",2],["D#",3],["E",4],["F",5],["F#",6],["G",7],["G#",8],["A",9],["A#",10],["B",11]];
+
+  /* ---------- accordo dall'URL (?c=Dm7) ---------- */
+  function chordFromParam(){
+    var m=(location.search.match(/[?&]c=([^&]+)/)||[])[1];
+    if(!m)return null;
+    try{m=decodeURIComponent(m);}catch(e){}
+    var s=m.replace(/\s+/g,"");
+    if(!s)return null;
+    var rootPc=null,rest="";
+    var two=s.slice(0,2);
+    ROOTS.forEach(function(r){if(r[0]===two){rootPc=r[1];rest=s.slice(2);}});
+    if(rootPc===null){
+      var one=s.slice(0,1);
+      ROOTS.forEach(function(r){if(r[0]===one){rootPc=r[1];rest=s.slice(1);}});
+    }
+    if(rootPc===null)return null;
+    if(rest==="m7b5")rest="m7\u266d5";
+    var q=null;
+    QUALS.forEach(function(x){if(x.suffix===rest)q=x;});
+    return q?{root:rootPc,qual:q.id}:null;
+  }
+  var init=chordFromParam();
+  var state=init?init:{root:2,qual:"m7"}; // Dm7 come nell'esempio
+
+  var CX=500,CY=500;
+  function pt(r,aDeg){
+    var a=aDeg*Math.PI/180;
+    return [CX+r*Math.cos(a), CY+r*Math.sin(a)];
+  }
+  function wedge(r1,r2,a1,a2){
+    var p1=pt(r2,a1),p2=pt(r2,a2),p3=pt(r1,a2),p4=pt(r1,a1);
+    return "M "+p1[0].toFixed(2)+" "+p1[1].toFixed(2)+
+      " A "+r2+" "+r2+" 0 0 1 "+p2[0].toFixed(2)+" "+p2[1].toFixed(2)+
+      " L "+p3[0].toFixed(2)+" "+p3[1].toFixed(2)+
+      " A "+r1+" "+r1+" 0 0 0 "+p4[0].toFixed(2)+" "+p4[1].toFixed(2)+" Z";
+  }
+  function el(name,attrs,parent){
+    var n=document.createElementNS(SVGNS,name);
+    for(var k in attrs)n.setAttribute(k,attrs[k]);
+    parent.appendChild(n);return n;
+  }
+
+  /* ---------- costruzione della ruota ---------- */
+  var wheel=document.getElementById("wheel");
+  var svg=el("svg",{viewBox:"0 0 1000 1000",role:"img","aria-label":"Circolo delle quinte interattivo"},wheel);
+
+  var gWedges=el("g",{},svg);         // settori
+  var gRings=el("g",{},svg);           // cerchi e raggi (sopra i wedges)
+  var gBadges=el("g",{},svg);         // badge dei gradi
+  var gLabels=el("g",{},svg);
+  var gCenter=el("g",{},svg);
+
+  var wedgeEls=[],badgeEls=[],relEls=[];
+
+  for(var i=0;i<12;i++){
+    var a1=-105+30*i,a2=-75+30*i;
+    var w=el("path",{d:wedge(330,445,a1,a2),fill:"transparent"},gWedges);
+    wedgeEls.push(w);
+
+    var b=el("g",{opacity:0},gBadges);
+    badgeEls.push(b);
+
+    // etichetta tonalità maggiore
+    var pm=pt(406,-90+30*i);
+    var t=el("text",{x:pm[0].toFixed(1),y:pm[1].toFixed(1),
+      "text-anchor":"middle","dominant-baseline":"central",
+      "font-family":"Georgia, serif","font-size":"54","font-weight":"bold",fill:"#1c1d21"},gLabels);
+    t.textContent=KEYS[i][0];
+
+    // etichetta relativo minore + alone
+    var pn=pt(258,-90+30*i);
+    var halo=el("circle",{cx:pn[0].toFixed(1),cy:pn[1].toFixed(1),r:52,fill:"transparent"},gLabels);
+    relEls.push(halo);
+    var tn=el("text",{x:pn[0].toFixed(1),y:pn[1].toFixed(1),
+      "text-anchor":"middle","dominant-baseline":"central",
+      "font-family":"Georgia, serif","font-size":"36",fill:"#3c3b37"},gLabels);
+    tn.textContent=REL[i];
+  }
+
+  // cerchi e raggi sopra i settori
+  el("circle",{cx:CX,cy:CY,r:445,fill:"none",stroke:"#8d8a80","stroke-width":3},gRings);
+  el("circle",{cx:CX,cy:CY,r:330,fill:"none",stroke:"#8d8a80","stroke-width":3},gRings);
+  el("circle",{cx:CX,cy:CY,r:200,fill:"var(--card)",stroke:"#8d8a80","stroke-width":3},gRings);
+  for(var j=0;j<12;j++){
+    var q1=pt(200,-105+30*j),q2=pt(445,-105+30*j);
+    el("line",{x1:q1[0].toFixed(1),y1:q1[1].toFixed(1),x2:q2[0].toFixed(1),y2:q2[1].toFixed(1),
+      stroke:"#ded9cd","stroke-width":2},gRings);
+  }
+
+  // nome dell'accordo al centro
+  var chordText=el("text",{x:CX,y:488,"text-anchor":"middle","dominant-baseline":"central",
+    "font-family":"Georgia, serif","font-weight":"bold",fill:"#1c1d21"},gCenter);
+  var chordSub=el("text",{x:CX,y:575,"text-anchor":"middle",
+    "font-family":"system-ui,sans-serif","font-size":"24",fill:"#6f6c63"},gCenter);
+  chordSub.textContent="tonalità diatoniche";
+
+  /* ---------- teoria ---------- */
+  function intervalsOf(keyPc,deg,seventh){
+    var steps=seventh?[0,2,4,6]:[0,2,4];
+    var base=SCALED[deg];
+    return steps.map(function(s){
+      return (SCALED[(deg+s)%7]-base+12)%12;
+    }).sort(function(a,b){return a-b;}).join(",");
+  }
+  function matches(rootPc,ivStr,seventh){
+    var out=[];
+    for(var k=0;k<12;k++){
+      var kpc=KEYS[k][1];
+      for(var d=0;d<7;d++){
+        if((kpc+SCALED[d])%12!==rootPc)continue;
+        if(intervalsOf(kpc,d,seventh)===ivStr)out.push({key:k,deg:d});
+      }
+    }
+    return out;
+  }
+
+  /* ---------- rendering ---------- */
+  function update(){
+    var rootName="",rootPc=0;
+    ROOTS.forEach(function(r){if(r[1]===state.root)rootName=r[0];});
+    var q=QUALS.filter(function(x){return x.id===state.qual;})[0];
+    var chordName=rootName+q.suffix;
+    var ivStr=q.iv.join(",");
+    var hits=matches(state.root,ivStr,q.iv.length===4);
+
+    chordText.textContent=chordName;
+    var len=chordName.length;
+    chordText.setAttribute("font-size",len<=2?120:len===3?96:len===4?74:len===5?60:50);
+
+    wedgeEls.forEach(function(w){w.setAttribute("fill","transparent");});
+    badgeEls.forEach(function(b){b.setAttribute("opacity",0);b.textContent="";});
+    relEls.forEach(function(h){h.setAttribute("fill","transparent");});
+
+    hits.forEach(function(h){
+      var color=MODECOLORS[h.deg];
+      wedgeEls[h.key].setAttribute("fill",color);
+      wedgeEls[h.key].setAttribute("fill-opacity","0.22");
+
+      var b=badgeEls[h.key];
+      while(b.firstChild)b.removeChild(b.firstChild);
+      var pb=pt(350,-90+30*h.key);
+      el("circle",{cx:pb[0].toFixed(1),cy:pb[1].toFixed(1),r:25,fill:color},b);
+      var bt=el("text",{x:pb[0].toFixed(1),y:pb[1].toFixed(1),
+        "text-anchor":"middle","dominant-baseline":"central",
+        "font-family":"Georgia, serif","font-size":"25","font-weight":"bold",fill:"#fff"},b);
+      bt.textContent=ROMAN[h.deg];
+      b.setAttribute("opacity",1);
+
+      relEls[h.key].setAttribute("fill",color);
+      relEls[h.key].setAttribute("fill-opacity","0.16");
+    });
+
+    // pannello risultati
+    document.getElementById("res-title").textContent=chordName+" compare in:";
+    // accordo condivisibile nell'URL
+    try{history.replaceState(null,"",location.pathname+"?c="+encodeURIComponent(chordName));}catch(e){}
+    document.getElementById("res-count").textContent=
+      hits.length+(hits.length===1?" tonalità":" tonalità");
+    var ul=document.getElementById("res-list");
+    ul.innerHTML="";
+    hits.forEach(function(h){
+      var li=document.createElement("li");
+      var dot=document.createElement("span");dot.className="dot";
+      dot.style.background=MODECOLORS[h.deg];
+      var key=document.createElement("span");key.className="key";
+      key.textContent=KEYS[h.key][0]+" maggiore";
+      var mode=document.createElement("span");mode.className="mode";
+      mode.textContent=ROMAN[h.deg]+" grado · modo "+MODES[h.deg];
+      li.appendChild(dot);li.appendChild(key);li.appendChild(mode);
+      ul.appendChild(li);
+    });
+  }
+
+  /* ---------- controlli ---------- */
+  var rootsBox=document.getElementById("roots");
+  ROOTS.forEach(function(r){
+    var b=document.createElement("button");
+    b.type="button";b.className="chip";b.textContent=r[0];
+    b.setAttribute("aria-pressed",r[1]===state.root);
+    b.addEventListener("click",function(){
+      state.root=r[1];
+      rootsBox.querySelectorAll(".chip").forEach(function(c){c.setAttribute("aria-pressed","false");});
+      b.setAttribute("aria-pressed","true");
+      update();
+    });
+    rootsBox.appendChild(b);
+  });
+  var qualsBox=document.getElementById("quals");
+  QUALS.forEach(function(q){
+    var b=document.createElement("button");
+    b.type="button";b.className="chip";b.textContent=q.label;
+    b.setAttribute("aria-pressed",q.id===state.qual);
+    b.addEventListener("click",function(){
+      state.qual=q.id;
+      qualsBox.querySelectorAll(".chip").forEach(function(c){c.setAttribute("aria-pressed","false");});
+      b.setAttribute("aria-pressed","true");
+      update();
+    });
+    qualsBox.appendChild(b);
+  });
+  document.querySelectorAll(".presets button").forEach(function(b){
+    b.addEventListener("click",function(){
+      var p=b.dataset.p.split("|");
+      var rootIdx=ROOTS.filter(function(r){return r[0]===p[0];})[0];
+      state.root=rootIdx[1];state.qual=p[1];
+      rootsBox.querySelectorAll(".chip").forEach(function(c,i){c.setAttribute("aria-pressed",ROOTS[i][1]===state.root);});
+      qualsBox.querySelectorAll(".chip").forEach(function(c,i){c.setAttribute("aria-pressed",QUALS[i].id===state.qual);});
+      update();
+    });
+  });
+
+  update();
+})();
+</script>
+</body>
+</html>
