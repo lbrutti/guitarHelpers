@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="it">
+<head><script type="application/json" id="__thaura_preview_files">{}</script><script data-thaura-preview-shim>window.__THAURA_PREVIEW__={"entry":"/index.html","basePath":"","routes":[]};
+/*
+ * The preview's own shim (thaura-preview, inline.cjs): the first script of
+ * the page. It answers, from the table inline.cjs put in the page, what the
+ * app's code loads after it starts, and makes what cannot work in Thaura's
+ * sandboxed frame harmless. It runs before any of the app's code.
+ */
+(function () {
+  'use strict';
+  var cfg = window.__THAURA_PREVIEW__ || { entry: '/index.html', basePath: '', routes: [] };
+  var table = null;
+  function files() {
+    if (table) return table;
+    try {
+      var el = document.getElementById('__thaura_preview_files');
+      table = el ? JSON.parse(el.textContent || '{}') : {};
+    } catch (e) {
+      table = {};
+    }
+    return table;
+  }
+  var baseOrigin = '';
+  try {
+    baseOrigin = new URL(document.baseURI).origin;
+  } catch (e) {}
+  var entryDir = cfg.entry.replace(/[^/]*$/, '');
+
+  /** The site path ('/_next/x.js') a URL the app asks for names, or null. */
+  function pathOf(url) {
+    if (url == null) return null;
+    var u = String(url).trim();
+    if (!u || /^(data:|blob:|#|javascript:|about:)/i.test(u)) return null;
+    var m = /^([a-z][a-z0-9+.-]*:)?\/\/[^/]+/i.exec(u);
+    if (m) {
+      var origin;
+      try {
+        origin = new URL(u).origin;
+      } catch (e) {
+        return null;
+      }
+      if (origin !== baseOrigin) return null;
+      u = u.slice(m[0].length) || '/';
+    }
+    u = u.replace(/[?#].*$/, '');
+    try {
+      u = decodeURI(u);
+    } catch (e) {}
+    if (u.charAt(0) !== '/') u = entryDir + u.replace(/^\.\//, '');
+    if (cfg.basePath && u.indexOf(cfg.basePath + '/') === 0) u = u.slice(cfg.basePath.length);
+    var parts = [];
+    u.split('/').forEach(function (s) {
+      if (s === '..') parts.pop();
+      else if (s && s !== '.') parts.push(s);
+    });
+    return '/' + parts.join('/');
+  }
+  /** The table's key for a URL the app asks for, or null. */
+  function keyOf(url) {
+    var k = pathOf(url);
+    if (k == null) return null;
+    var t = files();
+    if (t[k]) return k;
+    // Next's router asks for a route's payload as /about.txt or /about/index.txt
+    if (t[k + '.txt']) return k + '.txt';
+    return null;
+  }
+  function bodyOf(k) {
+    var f = files()[k];
+    if (f.s != null) return f.s;
+    var bin = atob(f.b);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+  /** The path of a script the page carried inline, when `src` names one. */
+  function inlinedScript(src) {
+    var p = pathOf(src);
+    if (!p) return null;
+    var el = document.querySelector('script[data-thaura-src="' + p.replace(/"/g, '\\"') + '"]');
+    return el ? p : null;
+  }
+  var uris = {};
+  function dataUri(k) {
+    if (uris[k]) return uris[k];
+    var f = files()[k];
+    uris[k] = f.s != null ? 'data:' + f.t + ';charset=utf-8,' + encodeURIComponent(f.s) : 'data:' + f.t + ';base64,' + f.b;
+    return uris[k];
+  }
+
+  // --- scripts and stylesheets added after the page started ----------------
+  var getAttr = Element.prototype.getAttribute;
+  var setAttr = Element.prototype.setAttribute;
+  var hasAttrFn = Element.prototype.hasAttribute;
+  var removeAttr = Element.prototype.removeAttribute;
+  function later(node, type) {
+    setTimeout(function () {
+      try {
+        node.dispatchEvent(new Event(type));
+      } catch (e) {}
+    }, 0);
+  }
+  var insert = Node.prototype.insertBefore;
+  /** Turn a node about to be inserted into one that needs nothing from the network. */
+  function adopt(node, parent) {
+    if (!node || node.nodeType !== 1) return;
+    var tag = node.tagName;
+    if (tag === 'SCRIPT' && hasAttrFn.call(node, 'src')) {
+      var src = getAttr.call(node, 'src');
+      var k = keyOf(src);
+      var inPage = inlinedScript(src);
+      if (inPage) {
+        // Already in the page and already run: a loader asking for it again
+        // (a bundler's runtime, React preloading a chunk) hears it loaded.
+        setAttr.call(node, 'data-thaura-src', inPage);
+        removeAttr.call(node, 'src');
+        later(node, 'load');
+        return;
+      }
+      if (!k || files()[k].t !== 'text/javascript') return;
+      setAttr.call(node, 'data-thaura-src', k);
+      removeAttr.call(node, 'src');
+      node.text = bodyOf(k);
+      // An inline classic script runs as it is inserted, a module one soon
+      // after; either way the loader waiting on it hears `load`.
+      later(node, 'load');
+      return;
+    }
+    if (tag === 'LINK' && hasAttrFn.call(node, 'href')) {
+      var rel = (getAttr.call(node, 'rel') || '').toLowerCase();
+      var href = getAttr.call(node, 'href');
+      var key = keyOf(href);
+      var sheet = /\bstylesheet\b/.test(rel) && pathOf(href);
+      if (sheet && document.querySelector('style[data-thaura-href="' + sheet.replace(/"/g, '\\"') + '"]')) {
+        // Already in the page as a <style>: a framework adding it again
+        // (React's stylesheet resources, a router) hears it loaded.
+        setAttr.call(node, 'data-thaura-href', sheet);
+        removeAttr.call(node, 'href');
+        later(node, 'load');
+        return;
+      }
+      if (/\bstylesheet\b/.test(rel) && key && files()[key].t === 'text/css') {
+        setAttr.call(node, 'data-thaura-href', key);
+        removeAttr.call(node, 'href');
+        if (!document.querySelector('style[data-thaura-href="' + key.replace(/"/g, '\\"') + '"]')) {
+          var st = document.createElement('style');
+          setAttr.call(st, 'data-thaura-href', key);
+          st.textContent = bodyOf(key);
+          (parent || document.head).appendChild(st);
+        }
+        later(node, 'load');
+        return;
+      }
+      if (/\b(preload|modulepreload|prefetch|preconnect|dns-prefetch|prerender|manifest|icon)\b/.test(rel)) {
+        // A hint the frame cannot follow: kept in the page, inert.
+        setAttr.call(node, 'data-thaura-rel', rel);
+        setAttr.call(node, 'rel', 'thaura-inert');
+        later(node, 'load');
+      }
+      return;
+    }
+    if (tag === 'IMG' || tag === 'SOURCE' || tag === 'VIDEO' || tag === 'AUDIO') {
+      ['src', 'poster'].forEach(function (n) {
+        if (!hasAttrFn.call(node, n)) return;
+        var kk = keyOf(getAttr.call(node, n));
+        if (kk) setAttr.call(node, n, dataUri(kk));
+      });
+    }
+  }
+  var append = Node.prototype.appendChild;
+  Node.prototype.appendChild = function (node) {
+    adopt(node, this);
+    return append.call(this, node);
+  };
+  Node.prototype.insertBefore = function (node, ref) {
+    adopt(node, this);
+    return insert.call(this, node, ref);
+  };
+  ['append', 'prepend', 'before', 'after', 'replaceWith'].forEach(function (name) {
+    var orig = Element.prototype[name];
+    if (!orig) return;
+    Element.prototype[name] = function () {
+      for (var i = 0; i < arguments.length; i++) adopt(arguments[i], this);
+      return orig.apply(this, arguments);
+    };
+  });
+
+  // A script the page carried inline still says where it came from: a
+  // bundler's runtime reads its own chunk's name from document.currentScript.
+  Element.prototype.getAttribute = function (name) {
+    if (this.tagName === 'SCRIPT' && String(name).toLowerCase() === 'src' && !hasAttrFn.call(this, 'src')) {
+      var v = getAttr.call(this, 'data-thaura-src');
+      if (v != null) return v;
+    }
+    return getAttr.apply(this, arguments);
+  };
+  var srcDesc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+  if (srcDesc && srcDesc.get) {
+    Object.defineProperty(HTMLScriptElement.prototype, 'src', {
+      configurable: true,
+      enumerable: srcDesc.enumerable,
+      get: function () {
+        if (!hasAttrFn.call(this, 'src')) {
+          var v = getAttr.call(this, 'data-thaura-src');
+          if (v != null) {
+            try {
+              return new URL(v, document.baseURI).href;
+            } catch (e) {
+              return v;
+            }
+          }
+        }
+        return srcDesc.get.call(this);
+      },
+      set: srcDesc.set,
+    });
+  }
+
+  // --- pictures and media a component sets later ---------------------------
+  var MEDIA = { IMG: 1, SOURCE: 1, VIDEO: 1, AUDIO: 1, TRACK: 1, INPUT: 1, EMBED: 1, image: 1 };
+  function mapSrcset(v) {
+    return String(v)
+      .split(/,(?=\s*\S)/)
+      .map(function (c) {
+        var m = /^\s*(\S+)(\s+.*)?$/.exec(c);
+        var k = m && keyOf(m[1]);
+        return k ? dataUri(k) + (m[2] || '') : c;
+      })
+      .join(',');
+  }
+  // An SVG sprite a <use> names by file (`/icons.svg#home`): browsers load
+  // no file there, so the sprite is put into the page once and the <use>
+  // points at its symbol.
+  var sprites = {};
+  function spriteRef(value) {
+    var v = String(value);
+    var hash = v.indexOf('#');
+    if (hash <= 0) return null;
+    var k = keyOf(v.slice(0, hash));
+    if (!k || files()[k].t !== 'image/svg+xml') return null;
+    if (!sprites[k]) {
+      sprites[k] = true;
+      var holder = document.createElement('div');
+      holder.innerHTML = bodyOf(k);
+      var svg = holder.querySelector('svg');
+      if (svg) {
+        svg.setAttribute('aria-hidden', 'true');
+        svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+        append.call(document.body || document.documentElement, svg);
+      }
+    }
+    return v.slice(hash);
+  }
+  Element.prototype.setAttribute = function (name, value) {
+    var n = String(name).toLowerCase();
+    if (this.tagName === 'use' && (n === 'href' || n === 'xlink:href')) {
+      var ref = spriteRef(value);
+      if (ref) return setAttr.call(this, name, ref);
+    }
+    if (MEDIA[this.tagName]) {
+      if (n === 'src' || n === 'poster' || n === 'href' || n === 'xlink:href') {
+        var k = keyOf(value);
+        if (k) return setAttr.call(this, name, dataUri(k));
+      } else if (n === 'srcset') {
+        return setAttr.call(this, name, mapSrcset(value));
+      }
+    }
+    return setAttr.apply(this, arguments);
+  };
+  [
+    [window.HTMLImageElement, 'src'],
+    [window.HTMLImageElement, 'srcset'],
+    [window.HTMLSourceElement, 'src'],
+    [window.HTMLSourceElement, 'srcset'],
+    [window.HTMLMediaElement, 'src'],
+    [window.HTMLVideoElement, 'poster'],
+  ].forEach(function (pair) {
+    if (!pair[0]) return;
+    var proto = pair[0].prototype;
+    var d = Object.getOwnPropertyDescriptor(proto, pair[1]);
+    if (!d || !d.set) return;
+    Object.defineProperty(proto, pair[1], {
+      configurable: true,
+      enumerable: d.enumerable,
+      get: d.get,
+      set: function (v) {
+        if (pair[1] === 'srcset') return d.set.call(this, mapSrcset(v));
+        var k = keyOf(v);
+        return d.set.call(this, k ? dataUri(k) : v);
+      },
+    });
+  });
+
+  // --- fetch and XMLHttpRequest for the site's own files -------------------
+  var origFetch = window.fetch;
+  if (origFetch) {
+    window.fetch = function (input, init) {
+      var url = typeof input === 'string' ? input : input && (input.url || input.href || String(input));
+      var method = ((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+      var k = (method === 'GET' || method === 'HEAD') && keyOf(url);
+      if (k) {
+        return Promise.resolve(
+          new Response(method === 'HEAD' ? null : bodyOf(k), { status: 200, headers: { 'Content-Type': files()[k].t } }),
+        );
+      }
+      return origFetch.apply(this, arguments);
+    };
+  }
+  var XHR = window.XMLHttpRequest;
+  if (XHR) {
+    var open = XHR.prototype.open;
+    var send = XHR.prototype.send;
+    XHR.prototype.open = function (method, url) {
+      this.__thauraKey = String(method).toUpperCase() === 'GET' ? keyOf(url) : null;
+      return open.apply(this, arguments);
+    };
+    XHR.prototype.send = function () {
+      var k = this.__thauraKey;
+      if (!k) return send.apply(this, arguments);
+      var xhr = this;
+      var body = bodyOf(k);
+      var text = typeof body === 'string' ? body : '';
+      var rt = xhr.responseType;
+      var response =
+        rt === 'json' ? (function () { try { return JSON.parse(text); } catch (e) { return null; } })()
+          : rt === 'arraybuffer' ? (typeof body === 'string' ? new TextEncoder().encode(body) : body).buffer
+            : rt === 'blob' ? new Blob([body], { type: files()[k].t })
+              : text;
+      var props = { readyState: 4, status: 200, statusText: 'OK', responseText: text, response: response, responseURL: k };
+      Object.keys(props).forEach(function (p) {
+        Object.defineProperty(xhr, p, { configurable: true, value: props[p] });
+      });
+      xhr.getResponseHeader = function (h) {
+        return String(h).toLowerCase() === 'content-type' ? files()[k].t : null;
+      };
+      xhr.getAllResponseHeaders = function () {
+        return 'content-type: ' + files()[k].t + '\r\n';
+      };
+      setTimeout(function () {
+        ['readystatechange', 'load', 'loadend'].forEach(function (t) {
+          try {
+            xhr.dispatchEvent(new Event(t));
+          } catch (e) {}
+        });
+      }, 0);
+    };
+  }
+
+  // --- the frame's address -------------------------------------------------
+  // The frame's own address is about:srcdoc, which is no base for a relative
+  // URL: a router's `new URL(path, location.href)` throws there (Next's app
+  // router does it on its first render), and its idea of the current path is
+  // "srcdoc". A URL made against that address is made against the page's
+  // own route on the host's origin instead.
+  var NativeURL = window.URL;
+  var route = cfg.entry.replace(/(^|\/)index\.html?$/, '$1').replace(/\.html?$/, '') || '/';
+  var routeHref = (baseOrigin && baseOrigin !== 'null' ? baseOrigin : 'https://preview.invalid') + route;
+  var isSrcdoc = function (b) {
+    return typeof b === 'string' ? b.indexOf('about:srcdoc') === 0 : b instanceof NativeURL && b.href.indexOf('about:srcdoc') === 0;
+  };
+  if (NativeURL && location.href.indexOf('about:srcdoc') === 0) {
+    var PreviewURL = class URL extends NativeURL {
+      constructor(u, base) {
+        if (arguments.length < 2 || base === undefined) {
+          super(u);
+          return;
+        }
+        if (isSrcdoc(base)) {
+          base = routeHref;
+          if (typeof u === 'string' && /^srcdoc([?#]|$)/.test(u)) u = route + u.slice(6);
+        }
+        super(u, base);
+      }
+    };
+    try {
+      window.URL = PreviewURL;
+    } catch (e) {}
+  }
+
+  // --- what the sandboxed frame refuses ------------------------------------
+  function memoryStorage() {
+    var data = {};
+    return {
+      get length() { return Object.keys(data).length; },
+      key: function (i) { return Object.keys(data)[i] || null; },
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(data, k) ? data[k] : null; },
+      setItem: function (k, v) { data[k] = String(v); },
+      removeItem: function (k) { delete data[k]; },
+      clear: function () { data = {}; },
+    };
+  }
+  ['localStorage', 'sessionStorage'].forEach(function (name) {
+    try {
+      var s = window[name];
+      s.getItem('__thaura');
+    } catch (e) {
+      try {
+        Object.defineProperty(window, name, { configurable: true, value: memoryStorage() });
+      } catch (e2) {}
+    }
+  });
+  try {
+    void document.cookie;
+  } catch (e) {
+    var jar = {};
+    try {
+      Object.defineProperty(document, 'cookie', {
+        configurable: true,
+        get: function () {
+          return Object.keys(jar).map(function (k) { return k + '=' + jar[k]; }).join('; ');
+        },
+        set: function (v) {
+          var pair = String(v).split(';')[0];
+          var i = pair.indexOf('=');
+          if (i > 0) jar[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+        },
+      });
+    } catch (e2) {}
+  }
+  try {
+    var sw = {
+      register: function () { return Promise.reject(new Error('service workers do not run in the preview')); },
+      getRegistration: function () { return Promise.resolve(undefined); },
+      getRegistrations: function () { return Promise.resolve([]); },
+      ready: new Promise(function () {}),
+      controller: null,
+      addEventListener: function () {},
+      removeEventListener: function () {},
+    };
+    Object.defineProperty(Navigator.prototype, 'serviceWorker', { configurable: true, get: function () { return sw; } });
+  } catch (e) {}
+  // The frame's own address is about:srcdoc, and a history entry with any
+  // other address is refused: the state is kept, the address stays.
+  ['pushState', 'replaceState'].forEach(function (name) {
+    var orig = History.prototype[name];
+    History.prototype[name] = function (state, title, url) {
+      try {
+        return orig.apply(this, arguments);
+      } catch (e) {
+        return orig.call(this, state, title);
+      }
+    };
+  });
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var uses = document.querySelectorAll('use');
+    for (var i = 0; i < uses.length; i++) {
+      var h = getAttr.call(uses[i], 'href') || getAttr.call(uses[i], 'xlink:href');
+      var ref = h && spriteRef(h);
+      if (ref) setAttr.call(uses[i], uses[i].hasAttribute('href') ? 'href' : 'xlink:href', ref);
+    }
+  });
+
+  // --- links ----------------------------------------------------------------
+  function toast(text) {
+    var el = document.getElementById('__thaura_preview_toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = '__thaura_preview_toast';
+      el.setAttribute('role', 'status');
+      el.style.cssText =
+        'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483647;max-width:90vw;' +
+        'padding:8px 14px;border-radius:8px;background:rgba(20,20,20,.92);color:#fff;font:13px/1.4 system-ui,sans-serif;' +
+        'box-shadow:0 2px 12px rgba(0,0,0,.25);pointer-events:none';
+      append.call(document.body || document.documentElement, el);
+    }
+    el.textContent = text;
+    el.style.display = 'block';
+    clearTimeout(el.__t);
+    el.__t = setTimeout(function () { el.style.display = 'none'; }, 3500);
+  }
+  window.addEventListener(
+    'click',
+    function (ev) {
+      if (ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
+      if (!a) return;
+      var href = getAttr.call(a, 'href') || '';
+      if (/^(javascript:|mailto:|tel:)/i.test(href)) return;
+      if (href.charAt(0) === '#') {
+        // In a srcdoc frame a bare #fragment would load the host page's
+        // address; scroll to the target instead.
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        var id = decodeURIComponent(href.slice(1));
+        var target = id ? document.getElementById(id) || document.getElementsByName(id)[0] : null;
+        if (target) target.scrollIntoView({ behavior: 'smooth' });
+        else if (!id) window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+      var abs;
+      try {
+        abs = new URL(href, document.baseURI);
+      } catch (e) {
+        return;
+      }
+      if (abs.origin !== baseOrigin) {
+        // Another site: a new tab, as the pane opens every link.
+        if (!a.target) {
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+          window.open(abs.href, '_blank', 'noopener');
+        }
+        return;
+      }
+      // A page of the site. The preview holds one page.
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      var p = abs.pathname.replace(/\/index\.html?$/, '/').replace(/\.html?$/, '');
+      var here = cfg.entry.replace(/\/index\.html?$/, '/').replace(/\.html?$/, '');
+      if (p === here || p + '/' === here) {
+        if (abs.hash) {
+          var t2 = document.getElementById(decodeURIComponent(abs.hash.slice(1)));
+          if (t2) t2.scrollIntoView({ behavior: 'smooth' });
+        }
+        return;
+      }
+      toast('This preview has one page; ' + p + ' is not part of it.');
+    },
+    true,
+  );
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Arpeggi di settima 1-3-5-7</title>
+<style>
+/* layout e stile identici all'app "Collegamento triadi 1-3-7": una colonna, controlli sopra, manico largo al centro, posizioni sotto */
+:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+:root{
+  --bg:#f6f7f5; --panel:#ffffff; --fg:#1c2422; --mute:#5d6b67; --line:#cfd6d2;
+  --fret:#9aa6a1; --string:#55625e; --a:#1b6e8a; --on-a:#ffffff; --b:#b9501a; --on-b:#ffffff; --link:#7d8b86;
+  --deg0:#1b6e8a; --deg0on:#fff; --deg1:#b9501a; --deg1on:#fff; --deg2:#3f7d2c; --deg2on:#fff; --deg3:#8a4a8a; --deg3on:#fff;
+  --sans:"Avenir Next","Segoe UI",system-ui,sans-serif; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#151a19; --panel:#1d2422; --fg:#e7ecea; --mute:#9aa8a3; --line:#34403c;
+  --fret:#5c6a65; --string:#a9b6b1; --a:#63bedc; --on-a:#06222c; --b:#f29a62; --on-b:#2e1203; --link:#8a9893; color-scheme:dark;
+  --deg0:#63bedc; --deg0on:#06222c; --deg1:#f29a62; --deg1on:#2e1203; --deg2:#9ed37f; --deg2on:#122a08; --deg3:#d9a3e8; --deg3on:#2a0d33 } }
+:root[data-theme="dark"]{
+  --bg:#151a19; --panel:#1d2422; --fg:#e7ecea; --mute:#9aa8a3; --line:#34403c;
+  --fret:#5c6a65; --string:#a9b6b1; --a:#63bedc; --on-a:#06222c; --b:#f29a62; --on-b:#2e1203; --link:#8a9893; color-scheme:dark;
+  --deg0:#63bedc; --deg0on:#06222c; --deg1:#f29a62; --deg1on:#2e1203; --deg2:#9ed37f; --deg2on:#122a08; --deg3:#d9a3e8; --deg3on:#2a0d33 }
+body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5}
+img{max-width:100%}
+[hidden]:not([hidden=until-found i]){display:none!important}
+.wrap{max-width:860px;margin:0 auto;padding-inline:16px;padding-block:28px 40px;display:flex;flex-direction:column;gap:18px}
+h1{font-size:22px;font-weight:600;margin:0;text-wrap:balance}
+p{margin:0;color:var(--mute);max-width:65ch}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+.chord{display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;border-top:3px solid var(--a)}
+.chord span{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.chord>div{display:flex;flex-wrap:wrap;gap:6px}
+select,button{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+button{cursor:pointer} button:hover:not(:disabled){border-color:var(--mute)} button:disabled{opacity:.45;cursor:default}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--a);outline-offset:2px}
+.board{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;overflow-x:auto}
+.board svg{display:block;width:100%;min-width:560px;height:auto}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.pills{display:flex;flex-wrap:wrap;gap:6px}
+.pills button{font-family:var(--mono);font-size:13px;min-width:38px;padding:5px 8px}
+.pills button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+#pos{font-variant-numeric:tabular-nums;color:var(--mute);margin-left:auto}
+label.chk{display:flex;gap:6px;align-items:center;color:var(--mute)}
+label.box{padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+#msg{font-size:13px}
+#seq{font-family:var(--mono);font-size:13px;color:var(--mute)}
+#seq b{color:var(--fg);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Arpeggi di settima</h1>
+  <p>Scegli la tonica e il tipo di arpeggio: il manico mostra tutte le diteggiature, in posizione fondamentale o in rivolto. Spuntando «Ometti la quinta» restano solo il primo, il terzo e il settimo grado, opportunamente alterati secondo la qualità dell'accordo.</p>
+  <div class="controls">
+    <div class="chord"><span>Arpeggio ●</span><div>
+      <select id="rt" aria-label="Tonica"></select>
+      <select id="qt" aria-label="Tipo di arpeggio"></select>
+      <select id="iv" aria-label="Rivolto"></select>
+    </div></div>
+    <label class="chk box"><input type="checkbox" id="no5"> Ometti la quinta (1·3·7)</label>
+    <label class="chk box"><input type="checkbox" id="all"> Tutte le posizioni</label>
+  </div>
+  <div class="board" id="board"></div>
+  <div class="row">
+    <button id="prev" type="button" aria-label="Posizione precedente">←</button>
+    <div class="pills" id="pills"></div>
+    <button id="next" type="button" aria-label="Posizione successiva">→</button>
+    <span id="pos"></span>
+  </div>
+  <div class="row">
+    <button id="play" type="button">▶ Ascolta</button>
+    <span id="seq"></span>
+    <span style="flex:1"></span>
+    <label class="chk"><input type="checkbox" id="nums"> Numeri dei tasti</label>
+    <button id="svg" type="button">Esporta SVG</button>
+  </div>
+  <p id="msg"></p>
+</div>
+<script>
+const NAMES=['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
+const IT=['DO','RE♭','RE','MI♭','MI','FA','SOL♭','SOL','LA♭','LA','SI♭','SI'];
+// iv = intervalli dalla tonica [3ª, 5ª, 7ª]; lab = gradi sul pallino con la quinta, lab3 senza
+const Q={
+  maj7:{n:'maj7', t:'Maj7',          iv:[4,7,11], lab:['1','3','5','7'],    lab3:['1','3','7']},
+  m7:  {n:'m7',   t:'min7',          iv:[3,7,10], lab:['1','♭3','5','♭7'],  lab3:['1','♭3','♭7']},
+  dom: {n:'7',    t:'Dominante (7)', iv:[4,7,10], lab:['1','3','5','♭7'],   lab3:['1','3','♭7']},
+  hd:  {n:'m7♭5', t:'min7♭5 (b7b5, ø)', iv:[3,6,10], lab:['1','♭3','♭5','♭7'], lab3:['1','♭3','♭7']}
+};
+const OPEN=[64,59,55,50,45,40], SN=['e','B','G','D','A','E'], MAXF=16;
+const $=id=>document.getElementById(id);
+const st={rt:9,qt:'m7',iv:'any',no5:false,all:false,i:0};
+
+function frets(row,pc){const o=[];for(let f=0;f<=MAXF;f++)if((OPEN[row]+f)%12===pc)o.push(f);return o}
+
+// Diteggiature ascendenti: una nota per corda, ogni corda più acuta e più alta della precedente.
+// b = grado al basso (0 tonica, 1 3ª, 2 5ª, 3 7ª); no5 = ometti la quinta.
+function voicings(root,q,inv,no5){
+  const iv=[0,...Q[q].iv];
+  const lab=no5?Q[q].lab3:Q[q].lab;
+  const deg=no5?[0,1,3]:[0,1,2,3];          // gradi usati
+  const li=no5?{0:0,1:1,3:2}:{0:0,1:1,2:2,3:3};  // grado → indice dell'etichetta
+  const pc=d=>(root+iv[d])%12;
+  const out=[],seen=new Set();
+  const basses=inv==='any'?deg:[+inv].filter(x=>deg.includes(x));
+  const perms=a=>a.length<=1?[a]:a.flatMap((x,i)=>perms([...a.slice(0,i),...a.slice(i+1)]).map(p=>[x,...p]));
+  for(const b of basses){
+    const rest=deg.filter(d=>d!==b), n=deg.length;
+    for(let r0=n-1;r0<=5;r0++){             // corda più grave della forma (indici: 5=E, 0=e)
+      {
+        const used=[];for(let j=0;j<n;j++)used.push(r0-j);  // n corde adiacenti, dalla più grave
+        for(const pm of perms(rest)){
+          const dg=[b,...pm];               // dg[j] = grado sulla corda used[j]
+          const fp=used.map((r,j)=>frets(r,pc(dg[j])));
+          (function walk(j,pitch,fs){
+            if(j===n){
+              const hiF=Math.max(...fs),loF=Math.min(...fs);
+              if(hiF-loF>4&&!(loF===0&&hiF<=5))return;   // la forma sta in 4 tasti (5 con la corda a vuoto)
+              const all=used.map((s,j)=>OPEN[s]+fs[j]);
+              const notes=used.map((s,j)=>({s,f:fs[j],g:dg[j],d:lab[li[dg[j]]]}));
+              const key=notes.map(x=>x.s+','+x.f).join('|');
+              if(seen.has(key))return; seen.add(key);
+              out.push({notes,c:all.reduce((a,x)=>a+x,0)/n,lo:loF,hi:hiF,
+                slash:dg[0]?'/'+NAMES[pc(dg[0])]:''});
+              return;
+            }
+            for(const f of fp[j]){
+              const abs=OPEN[used[j]]+f;
+              if(j>0&&abs<=pitch)continue;  // strictly ascending
+              walk(j+1,abs,[...fs,f]);
+            }
+          })(0,-99,[]);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+const cname=(r,q)=>NAMES[r]+Q[q].n+(st.no5?' (1·3·7)':'');
+const W=720,H=280,X0=70,FW=(W-X0-20)/MAXF,Y0=64,SY=30;
+const nx=f=>f===0?X0-24:X0+(f-.5)*FW, sy=s=>Y0+s*SY;
+const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+function draw(P,p,opts){
+  const T=(x,y,t,o={})=>`<text x="${x}" y="${y}" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="${o.z||12}" font-weight="${o.w||400}" fill="${o.c||P.mute}" text-anchor="${o.a||'middle'}" dominant-baseline="central">${esc(t)}</text>`;
+  const nm=cname(st.rt,st.qt);
+  let s=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}"${opts.px?` width="${W*2}" height="${H*2}"`:''} role="img" aria-label="Arpeggio ${esc(nm)} sul manico">`;
+  if(opts.bg)s+=`<rect width="${W}" height="${H}" fill="${P.bg}"/>`;
+  s+=T(X0,26,nm,{z:16,w:600,c:P.fg,a:'start'});
+  if(opts.pos)s+=T(W-20,26,opts.pos,{a:'end'});
+  for(let f=1;f<=MAXF;f++)s+=`<line x1="${X0+f*FW}" y1="${Y0}" x2="${X0+f*FW}" y2="${sy(5)}" stroke="${P.fret}" stroke-width="1"/>`;
+  s+=`<line x1="${X0}" y1="${Y0}" x2="${X0}" y2="${sy(5)}" stroke="${P.fg}" stroke-width="4"/>`;
+  for(let i=0;i<6;i++)s+=`<line x1="${X0}" y1="${sy(i)}" x2="${X0+MAXF*FW}" y2="${sy(i)}" stroke="${P.string}" stroke-width="${1+i*.25}"/>`+T(16,sy(i),SN[i]);
+  if(opts.nums)for(let f=1;f<=MAXF;f++)s+=T(nx(f),sy(5)+22,String(f),{z:11});
+  if(opts.all){
+    // mappa completa: tutte le note disponibili dell'arpeggio, colorate per grado
+    const iv=[0,...Q[st.qt].iv];
+    const lab=(st.no5?Q[st.qt].lab3:Q[st.qt].lab);
+    const degs=(st.no5?[0,1,3]:[0,1,2,3]);
+    const li3={0:0,1:1,3:2};
+    for(let r=0;r<6;r++)for(let f=0;f<=MAXF;f++){
+      const pc=(OPEN[r]+f)%12, g=degs.find(d=>(st.rt+iv[d])%12===pc);
+      if(g===undefined)continue;
+      const k=st.no5?li3[g]:g;
+      s+=`<circle cx="${nx(f)}" cy="${sy(r)}" r="10" fill="${P.deg[g]}"/>`+T(nx(f),sy(r),lab[k],{z:10.5,w:600,c:P.degon[g]});
+    }
+    // legenda in alto a destra
+    let lx=W-20-((degs.length-1)*44)-10;
+    for(const g of degs){
+      const k=st.no5?li3[g]:g;
+      s+=`<circle cx="${lx}" cy="26" r="8.5" fill="${P.deg[g]}"/>`+T(lx,26,lab[k],{z:9,w:600,c:P.degon[g]});
+      lx+=44;
+    }
+    return s+'</svg>';
+  }
+  if(p){
+    const ord=p.notes.slice().sort((x,y)=>(OPEN[x.s]+x.f)-(OPEN[y.s]+y.f));
+    // frecce sottili che collegano le note nell'ordine di esecuzione
+    for(let i=0;i<ord.length-1;i++){
+      const a=ord[i],b=ord[i+1];
+      const x1=nx(a.f),y1=sy(a.s),x2=nx(b.f),y2=sy(b.s);
+      const dx=x2-x1,dy=y2-y1,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L;
+      if(L<34)continue;
+      const sx1=x1+ux*13,sy1=y1+uy*13,tx=x2-ux*14,ty=y2-uy*14;
+      s+=`<line x1="${sx1}" y1="${sy1}" x2="${tx}" y2="${ty}" stroke="${P.link}" stroke-width="2" opacity=".6"/>`;
+      s+=`<polygon points="${x2-ux*11},${y2-uy*11} ${tx-uy*4.5},${ty+ux*4.5} ${tx+uy*4.5},${ty-ux*4.5}" fill="${P.link}" opacity=".8"/>`;
+    }
+    for(const n of ord){
+      const x=nx(n.f),y=sy(n.s);
+      if(n.g===0)s+=`<circle cx="${x}" cy="${y}" r="14" fill="none" stroke="${P.a}" stroke-width="2"/>`;
+      s+=`<circle cx="${x}" cy="${y}" r="11" fill="${P.a}"/>`+T(x,y,n.d,{z:11.5,w:600,c:P.onA});
+    }
+    const x1=p.lo===0?X0-38:X0+(p.lo-1)*FW+3,x2=Math.max(X0+p.hi*FW-3,x1+30),yb=sy(5)+38;
+    s+=`<line x1="${x1}" y1="${yb}" x2="${x2}" y2="${yb}" stroke="${P.a}" stroke-width="3" stroke-linecap="round"/>`
+      +T((x1+x2)/2,yb+14,cname(st.rt,st.qt)+p.slash,{w:600,c:P.a});
+  }else s+=T(W/2,150,'Nessuna posizione comoda entro il 16° tasto',{z:13});
+  return s+'</svg>';
+}
+const LIVE={bg:'var(--panel)',fg:'var(--fg)',mute:'var(--mute)',fret:'var(--fret)',string:'var(--string)',a:'var(--a)',onA:'var(--on-a)',link:'var(--link)',
+  deg:['var(--deg0)','var(--deg1)','var(--deg2)','var(--deg3)'],degon:['var(--deg0on)','var(--deg1on)','var(--deg2on)','var(--deg3on)']};
+const PRINT={bg:'#ffffff',fg:'#1c2422',mute:'#5d6b67',fret:'#9aa6a1',string:'#55625e',a:'#1b6e8a',onA:'#ffffff',link:'#7d8b86',
+  deg:['#1b6e8a','#b9501a','#3f7d2c','#8a4a8a'],degon:['#ffffff','#ffffff','#ffffff','#ffffff']};
+let list=[];
+const posText=()=>st.all
+  ?`${list.length} diteggiature · mappa completa fino al ${MAXF}° tasto`
+  :(list.length?`Posizione ${st.i+1} di ${list.length} · tasti ${list[st.i].lo}–${list[st.i].hi}`:'');
+const seqText=p=>{
+  const iv=[0,...Q[st.qt].iv];
+  return p.notes.slice().sort((x,y)=>(OPEN[x.s]+x.f)-(OPEN[y.s]+y.f))
+    .map(n=>`<b>${IT[(st.rt+iv[n.g])%12]}</b>`).join(' – ');
+};
+function render(recalc){
+  if(recalc){
+    list=voicings(st.rt,st.qt,st.iv,st.no5);
+    list.sort((x,y)=>x.lo-y.lo||x.c-y.c||y.notes[0].s-x.notes[0].s);
+    st.i=0;
+  }
+  st.i=Math.max(0,Math.min(st.i,list.length-1));
+  const p=st.all?null:(list[st.i]||null);
+  $('board').innerHTML=draw(LIVE,st.all?null:p,{nums:$('nums').checked,all:st.all});
+  $('pos').textContent=posText();
+  $('seq').innerHTML=p?('Eseguito dal basso: '+seqText(p)):'';
+  $('play').disabled=!p;
+  $('prev').disabled=$('next').disabled=st.all||!list.length;
+  for(const b of $('pills').querySelectorAll('button'))b.disabled=st.all;
+  $('pills').innerHTML=list.map((q,i)=>`<button type="button" data-i="${i}" aria-pressed="${i===st.i}" aria-label="Posizione ${i+1}, tasti ${q.lo}–${q.hi}"${st.all?' disabled':''}>${i+1}</button>`).join('');
+  $('msg').textContent=st.all
+    ?'Mappa completa: ogni pallino è una nota dell\'arpeggio disponibile sul manico, colorata e numerata secondo il grado. Le diteggiature valide sono '+list.length+', selezionate una con i pulsanti numerati disattivando «Tutte le posizioni».'
+    :(st.no5
+    ?'Quinto grado omesso: restano tonica, terza e settima, alterate secondo la qualità dell\'accordo (Maj7: 1·3·7 · min7 e dominante: 1·♭3 o 3·♭7 · min7♭5: 1·♭3·♭7). L\'anello attorno al pallino indica la tonica; le frecce l\'ordine di esecuzione dal basso verso l\'alto.'
+    :'L\'anello attorno al pallino indica la tonica, le frecce l\'ordine di esecuzione dal basso verso l\'alto. Le diteggiature non superano i 4 tasti di apertura. Con quinta omessa, min7 e min7♭5 sulla stessa tonica danno le stesse tre note: cambia il grado ♭5, che qui non c\'è.');
+}
+function fill(){
+  $('rt').innerHTML=NAMES.map((n,i)=>`<option value="${i}">${n} (${IT[i]})</option>`).join('');
+  $('qt').innerHTML=Object.entries(Q).map(([k,v])=>`<option value="${k}">${v.t}</option>`).join('');
+  $('iv').innerHTML='<option value="0">Fondamentale</option><option value="1">1° rivolto (3ª al basso)</option><option value="2">2° rivolto (5ª al basso)</option><option value="3">3° rivolto (7ª al basso)</option><option value="any" selected>Qualsiasi rivolto</option>';
+  sync();
+}
+function sync(){$('rt').value=st.rt;$('qt').value=st.qt;$('iv').value=st.iv;$('no5').checked=st.no5;$('all').checked=st.all}
+for(const id of ['rt','qt','iv'])document.addEventListener('change',e=>{if(e.target.id===id){st[id]=id==='rt'?+e.target.value:e.target.value;render(true)}});
+$('no5').addEventListener('change',e=>{st.no5=e.target.checked;if(st.iv==='2')st.iv='0';render(true);sync()});
+$('all').addEventListener('change',e=>{st.all=e.target.checked;render(false)});
+$('nums').addEventListener('change',()=>render(false));
+$('prev').addEventListener('click',()=>{if(list.length){st.i=(st.i-1+list.length)%list.length;render(false)}});
+$('next').addEventListener('click',()=>{if(list.length){st.i=(st.i+1)%list.length;render(false)}});
+$('pills').addEventListener('click',e=>{const b=e.target.closest('button');if(b){st.i=+b.dataset.i;render(false)}});
+fill();render(true);
+
+// audio: arpeggio dal basso verso l'alto + ottava, synth minimale, nessuna libreria esterna
+let AC=null;
+const freq=m=>440*Math.pow(2,(m-69)/12);
+$('play').addEventListener('click',()=>{
+  const p=list[st.i]; if(!p)return;
+  AC=AC||new (window.AudioContext||window.webkitAudioContext)();
+  if(AC.state==='suspended')AC.resume();
+  const notes=p.notes.slice().sort((a,b)=>(OPEN[a.s]+a.f)-(OPEN[b.s]+b.f));
+  const seq=notes.map(n=>OPEN[n.s]+n.f); seq.push(seq[seq.length-1]+12);
+  const t0=AC.currentTime+.05, dt=.22;
+  seq.forEach((m,i)=>{
+    const t=t0+i*dt, o=AC.createOscillator(), g=AC.createGain();
+    o.type='triangle'; o.frequency.value=freq(m);
+    g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(.22,t+.015);
+    g.gain.exponentialRampToValueAtTime(.0001,t+.9);
+    o.connect(g).connect(AC.destination); o.start(t); o.stop(t+1);
+  });
+});
+
+// esportazione SVG
+$('svg').addEventListener('click',()=>{
+  const svg=draw(PRINT,st.all?null:(list[st.i]||null),{nums:$('nums').checked,bg:true,px:true,pos:st.all?'':posText(),all:st.all});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
+  a.download=`arpeggi-${cname(st.rt,st.qt)}${st.iv!=='any'?'-inv'+st.iv:''}-pos${st.i+1}.svg`.replace(/♭/g,'b').replace(/ø/g,'m7b5').replace(/·/g,'');
+  a.click(); URL.revokeObjectURL(a.href);
+});
+</script>
+</body>
+</html>
